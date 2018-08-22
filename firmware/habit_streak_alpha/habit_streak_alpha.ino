@@ -74,7 +74,7 @@ void loop() {
     } else if (inputString.startsWith("t")) {
       setTime();
     } else if (inputString.startsWith("rstcurrent")) {
-      currentStreak = 0;
+      currentStreak = -1;
       EEPROM.put(CURRENT_STREAK_ADDRS, currentStreak);
     } else if (inputString.startsWith("rstmax")) {
       maxStreak = 0;
@@ -120,7 +120,7 @@ void pollButton() {
     display.println("Broken!");
     display.display();
 
-    currentStreak = 0;
+    currentStreak = -1;
     EEPROM.put(CURRENT_STREAK_ADDRS, currentStreak);
 
     delay(5000);
