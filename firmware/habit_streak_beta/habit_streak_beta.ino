@@ -6,12 +6,15 @@
 #include <EEPROM.h>
 
 //#define WRITE_INIT_DATA  // uncomment to write initial data to eeprom for new devices
+#define OUTPUT_AMB  // uncomment to serial print ambient analog value
 
 #define BUTTON 3
+#define AMBLS  A0 // TEMT6000 ambient light sensor
 
 #define FIRST_TS_ADDRESS   0                                      // eeprom address of newest button press time stamp
 #define SECOND_TS_ADDRESS  sizeof(uint32_t)                       // eeprom address of second oldest button press time stamp
 #define THIRD_TS_ADDRESS   SECOND_TS_ADDRESS + sizeof(uint32_t)   // eeprom address of oldest button press time stamp
+#define AMB_ADDRESS        THIRD_TS_ADDRESS + sizeof(uint32_t)    // eeprom address of ambient light threshold value
 
 #define OLED_RESET 4
 Adafruit_SSD1306 display(OLED_RESET);
@@ -31,6 +34,8 @@ uint32_t firstTS;  // nesets time stamp of when button was pressed
 uint32_t secondTS; // second oldest time stamp of when button was pressed
 uint32_t thirdTS;  // oldest time stamp of when button was pressed
 
+int ambient_threshold;
+
 struct TimeDelta {
   uint16_t days;
   uint8_t hours;
@@ -46,14 +51,15 @@ void setup() {
 
 #ifdef WRITE_INIT_DATA
   //EEPROM.put(FIRST_TS_ADDRESS, 1535223600UL);
-  EEPROM.put(SECOND_TS_ADDRESS, 1535223600UL);
-  EEPROM.put(THIRD_TS_ADDRESS,  1535103000UL);
+  //EEPROM.put(SECOND_TS_ADDRESS, 1535223600UL);
+  //EEPROM.put(THIRD_TS_ADDRESS,  1535103000UL);
 #endif
 
   // read in EEPROM data
   EEPROM.get(FIRST_TS_ADDRESS, firstTS);
   EEPROM.get(SECOND_TS_ADDRESS, secondTS);
   EEPROM.get(THIRD_TS_ADDRESS, thirdTS);
+  EEPROM.get(AMB_ADDRESS, ambient_threshold);
 
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3C (for the 128x32)
   display.clearDisplay();  // clear preloaded Adafruit splashscreen
@@ -87,12 +93,18 @@ void checkSerial() {
     inputString.toLowerCase();
     if (inputString.startsWith("?")) {
       Serial.println("");
-      Serial.println("T HH:MM:SS -> To set time");
+      Serial.println("t HH:MM:SS -> To set time");
       Serial.println("now        -> To get current datetime");
+      Serial.println("a XXXX     -> To set light threshold");
     } else if (inputString.startsWith("now")) {
       printTime();
     } else if (inputString.startsWith("t")) {
       setTime();
+    } else if (inputString.startsWith("a")) {
+      setAmbient();
+    } else {
+      Serial.print(inputString);
+      Serial.println(" is not a valid command!");
     }
     inputString = "";
     stringComplete = false;
@@ -132,49 +144,61 @@ void updateOLED() {
     TimeDelta nowTD = calcTimeDelta(now.unixtime(), firstTS); // calculate time delta between now and newest button press
     TimeDelta pastTD = calcTimeDelta(secondTS, thirdTS); // calculate previous time delta
 
-    display.clearDisplay();
+    int ambVal = analogRead(AMBLS);
+    if (ambVal > ambient_threshold) {
 
-    display.setTextSize(1);
-    display.setTextColor(WHITE);
-    display.setCursor(0, 0);
-    display.print(now.hour(), DEC);
-    display.print(":");
-    if (now.minute() < 10) {
-      display.print(0, DEC);
-      display.print(now.minute(), DEC);
+      display.clearDisplay();
+
+      display.setTextSize(1);
+      display.setTextColor(WHITE);
+      display.setCursor(0, 0);
+      display.print(now.hour(), DEC);
+      display.print(":");
+      if (now.minute() < 10) {
+        display.print(0, DEC);
+        display.print(now.minute(), DEC);
+      } else {
+        display.print(now.minute(), DEC);
+      }
+      display.print(" ");
+      display.print(now.month(), DEC);
+      display.print("/");
+      display.print(now.day(), DEC);
+      display.print("/");
+      display.println(now.year(), DEC);
+
+
+      display.setTextSize(1);
+      display.print("Now: ");
+      display.print(nowTD.days);
+      display.print(' ');
+      display.print(nowTD.hours);
+      display.print(':');
+      if (nowTD.minutes < 10) {
+        display.print(0, DEC);
+      }
+      display.println(nowTD.minutes);
+
+      display.print("Max: ");
+      display.print(pastTD.days);
+      display.print(' ');
+      display.print(pastTD.hours);
+      display.print(':');
+      if (pastTD.minutes < 10) {
+        display.print(0, DEC);
+      }
+      display.println(pastTD.minutes);
+
+      display.display();
     } else {
-      display.print(now.minute(), DEC);
+      display.clearDisplay();
+      display.display();
     }
-    display.print(" ");
-    display.print(now.month(), DEC);
-    display.print("/");
-    display.print(now.day(), DEC);
-    display.print("/");
-    display.println(now.year(), DEC);
 
+#ifdef OUTPUT_AMB
+    Serial.println(ambVal);
+#endif
 
-    display.setTextSize(1);
-    display.print("Now: ");
-    display.print(nowTD.days);
-    display.print(' ');
-    display.print(nowTD.hours);
-    display.print(':');
-    if (nowTD.minutes < 10) {
-      display.print(0, DEC);
-    }
-    display.println(nowTD.minutes);
-
-    display.print("Max: ");
-    display.print(pastTD.days);
-    display.print(' ');
-    display.print(pastTD.hours);
-    display.print(':');
-    if (pastTD.minutes < 10) {
-      display.print(0, DEC);
-    }
-    display.println(pastTD.minutes);
-
-    display.display();
   } // end timing loop
 } // end updateOLED
 
@@ -224,6 +248,13 @@ void printTime() {
   Serial.print(now.second(), DEC);
   Serial.println();
 } //end printTime
+
+void setAmbient() {
+  inputString.remove(0, 2);     // remove the a and the space
+  ambient_threshold = inputString.toInt();  // get analog threshold
+
+  EEPROM.put(AMB_ADDRESS, ambient_threshold);
+}
 
 /*
   SerialEvent occurs whenever a new data comes in the hardware serial RX. This
