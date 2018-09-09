@@ -248,6 +248,8 @@ void pollButton() {
     while (digitalRead(BUTTON) == LOW) {
       delay(50); // wait for release
     } // end while button low
+    button_ts = now.unixtime();
+    EEPROM.put(BUTTON_TS, button_ts);
   } // end if button low
 } // end pollButton
 
