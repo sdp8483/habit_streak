@@ -5,7 +5,7 @@
 #include <Adafruit_SSD1306.h>
 #include "RTClib.h"
 
-#define FW_VERSION "V1.0.0"
+#define FW_VERSION "V1.1.0"
 #define HW_VERSION "V0.0.a"
 
 // --- Pin Defines ---
@@ -17,8 +17,8 @@
 //#define INIT_EEPROM_VALS                                  // initialize eeprom with default values if defined
 #define BUTTON_TS       0                                 // last button press timestamp
 #define MAX_TIMESPAN    sizeof(uint32_t)                  // max timespan address
-#define MIN_TIMESPAN    MAX_TIMESPAN + sizeof(uint32_t)   // min timespan address
-#define AVG_TIMESPAN    MIN_TIMESPAN + sizeof(uint32_t)   // Average timespan address
+#define PRE_TIMESPAN    MAX_TIMESPAN + sizeof(uint32_t)   // previous timespan address
+#define AVG_TIMESPAN    PRE_TIMESPAN + sizeof(uint32_t)   // Average timespan address
 #define AMB_THRESHOLD   AVG_TIMESPAN + sizeof(uint32_t)   // ambient sensor threshold address
 
 // --- SSD1306 128x32 i2c OLED ---
@@ -47,7 +47,7 @@ struct timedelta {
 
 uint32_t button_ts;
 uint32_t max_ts;
-uint32_t min_ts;
+uint32_t pre_ts;
 uint32_t avg_ts;
 
 void setup() {
@@ -60,7 +60,7 @@ void setup() {
 #ifdef INIT_EEPROM_VALS
   EEPROM.put(BUTTON_TS, 1536425340UL);
   EEPROM.put(MAX_TIMESPAN, 216720UL);
-  EEPROM.put(MIN_TIMESPAN, 13058UL);
+  EEPROM.put(PRE_TIMESPAN, 13058UL);
   EEPROM.put(AVG_TIMESPAN, 114889UL);
   EEPROM.put(AMB_THRESHOLD, 5);
 #endif
@@ -68,7 +68,7 @@ void setup() {
   // read in EEPROM data
   EEPROM.get(BUTTON_TS, button_ts);
   EEPROM.get(MAX_TIMESPAN, max_ts);
-  EEPROM.get(MIN_TIMESPAN, min_ts);
+  EEPROM.get(PRE_TIMESPAN, pre_ts);
   EEPROM.get(AVG_TIMESPAN, avg_ts);
   EEPROM.get(AMB_THRESHOLD, ambient_threshold);
 
@@ -99,8 +99,8 @@ void setup() {
   Serial.println(button_ts);
   Serial.print("Max Timespan: ");
   Serial.println(max_ts);
-  Serial.print("Min Timespan: ");
-  Serial.println(min_ts);
+  Serial.print("Previous Timespan: ");
+  Serial.println(pre_ts);
   Serial.print("Average Timespan: ");
   Serial.println(avg_ts);
   Serial.print("Ambient Threshold: ");
@@ -122,7 +122,7 @@ void updateOLED() {
 
   enum statDisplay {
     MAX,
-    MIN,
+    PRE,
     AVG,
   };
 
@@ -135,7 +135,7 @@ void updateOLED() {
 
     timedelta nowTD = get_timedelta((now.unixtime() - button_ts));  // calculate time delta between now button presses
     timedelta maxTD = get_timedelta(max_ts);                      // calculate max time delta
-    timedelta minTD = get_timedelta(min_ts);                      // calculate min time delta
+    timedelta preTD = get_timedelta(pre_ts);                      // calculate min time delta
     timedelta avgTD = get_timedelta(avg_ts);                      // calcualte avg time delta
 
     if (analogRead(AMBIENT_SENSOR) > ambient_threshold) {
@@ -181,19 +181,19 @@ void updateOLED() {
             display.print(0, DEC);
           }
           display.println(maxTD.minutes);
-          currentStatDisplay = MIN;
+          currentStatDisplay = PRE;
           break;
 
-        case MIN:
-          display.print("Min: ");
-          display.print(minTD.days);
+        case PRE:
+          display.print("Pre: ");
+          display.print(preTD.days);
           display.print("d ");
-          display.print(minTD.hours);
+          display.print(preTD.hours);
           display.print(':');
-          if (minTD.minutes < 10) {
+          if (preTD.minutes < 10) {
             display.print(0, DEC);
           }
-          display.println(minTD.minutes);
+          display.println(preTD.minutes);
           currentStatDisplay = AVG;
           break;
 
@@ -234,11 +234,9 @@ void pollButton() {
       EEPROM.put(MAX_TIMESPAN, max_ts);
     }
 
-    // is this new timespan shorter then the previous minimum?
-    if (now_timespan < min_ts) {
-      min_ts = now.unixtime() - button_ts;
-      EEPROM.put(MIN_TIMESPAN, min_ts);
-    }
+    // save previous timespan
+    pre_ts = now_timespan;
+    EEPROM.put(PRE_TIMESPAN, pre_ts);
 
     // calculate the rolling average timespan
     avg_ts += now_timespan;
